@@ -123,7 +123,7 @@ for root, dirs, files in os.walk(train_path, topdown=True):
         copyfile(src_path, dst_path + '/' + name)
         '''
         src_path = train_path + '/' + name
-        dst_train_path = train_save_path + '/' + ID[0] + '_' + ID[1]
+        dst_train_path = train_save_path + '/' + ID[0] +  ID[1][1]+ID[1][3]
         dst_val_path = val_save_path +'/' + ID[0]
         if not os.path.isdir(dst_val_path):
             os.mkdir(dst_val_path)

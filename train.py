@@ -64,7 +64,7 @@ for str_id in str_ids:
 
 # set gpu ids
 if len(gpu_ids)>0:
-    torch.cuda.set_device(gpu_ids[0])
+    #torch.cuda.set_device(gpu_ids[0])
     cudnn.benchmark = True
 ######################################################################
 # Load Data
@@ -156,10 +156,10 @@ y_err['val'] = []
 
 def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
-
     #best_model_wts = model.state_dict()
     #best_acc = 0.0
-    warm_up = 0.1 # We start from the 0.1*lrRate
+    s_a=1
+    warm_up = 0.1  # We start from the 0.1*lrRate
     warm_iteration = round(dataset_sizes['train']/opt.batchsize)*opt.warm_epoch # first 5 epoch
     if opt.circle:
         criterion_circle = CircleLoss(m=0.25, gamma=32)
@@ -177,10 +177,15 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
 
             running_loss = 0.0
             running_corrects = 0.0
+
+            s={}
+
             # Iterate over data.
             for data in dataloaders[phase]:
                 # get the inputs
                 inputs, labels = data
+                #print(inputs.size())
+                #print(inputs)
                 now_batch_size,c,h,w = inputs.shape
                 if now_batch_size<opt.batchsize: # skip the last batch
                     continue
@@ -206,6 +211,32 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     outputs = model(inputs)
 
                 sm = nn.Softmax(dim=1)
+
+                #cnt = [0, 0, 0, 0, 0, 0]
+                #pos = [[],[],[],[],[],[]]
+                
+                x = {}
+                cnt={}
+                labels_np = labels.numpy()
+                [rows]=labels_np.shape
+                for i in range(rows):
+                    if class_names[labels_np[i]] in x: 
+                        #s[class_names[i]]=1/(1+s_a) * (s[class_names[i]] + s_a*(1/))
+                        x[class_names[labels_np[i]]] = x[class_names[labels_np[i]]] + outputs[i]
+                        cnt[class_names[labels_np[i]]] = cnt[class_names[labels_np[i]]] +1
+                    else:
+                        x[class_names[labels_np[i]]] = outputs[i]
+                        cnt[class_names[labels_np[i]]] = 1
+                     
+                print(x)
+                print("\n")
+                print(cnt)
+
+
+
+
+
+                '''
                 if opt.circle: 
                     logits, ff = outputs
                     fnorm = torch.norm(ff, p=2, dim=1, keepdim=True)
@@ -229,6 +260,11 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     loss = criterion(part[0], labels)
                     for i in range(num_part-1):
                         loss += criterion(part[i+1], labels)
+                '''
+                
+
+
+
 
                 # backward + optimize only if in training phase
                 if epoch<opt.warm_epoch and phase == 'train': 
@@ -384,7 +420,7 @@ with open('%s/opts.yaml'%dir_name,'w') as fp:
     yaml.dump(vars(opt), fp, default_flow_style=False)
 
 # model to gpu
-model = model.cuda()
+#model = model.cuda()
 if fp16:
     #model = network_to_half(model)
     #optimizer_ft = FP16_Optimizer(optimizer_ft, static_loss_scale = 128.0)
