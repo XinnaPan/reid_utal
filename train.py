@@ -206,9 +206,9 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 # forward
                 if phase == 'val':
                     with torch.no_grad():
-                        outputs = model(inputs)
+                        outputs,feavec = model(inputs)
                 else:
-                    outputs = model(inputs)
+                    outputs,feavec = model(inputs)
 
                 sm = nn.Softmax(dim=1)
 
@@ -222,10 +222,10 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 for i in range(rows):
                     if class_names[labels_np[i]] in x: 
                         #s[class_names[i]]=1/(1+s_a) * (s[class_names[i]] + s_a*(1/))
-                        x[class_names[labels_np[i]]] = x[class_names[labels_np[i]]] + outputs[i]
+                        x[class_names[labels_np[i]]] = x[class_names[labels_np[i]]] + feavec[i]
                         cnt[class_names[labels_np[i]]] = cnt[class_names[labels_np[i]]] +1
                     else:
-                        x[class_names[labels_np[i]]] = outputs[i]
+                        x[class_names[labels_np[i]]] = feavec[i]
                         cnt[class_names[labels_np[i]]] = 1
                      
                 print(x)
