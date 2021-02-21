@@ -186,7 +186,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 # get the inputs
                 inputs, labels = data
                 #print(inputs.size())
-                print(labels)
+                #print(labels)
                 now_batch_size,c,h,w = inputs.shape
                 if now_batch_size<opt.batchsize: # skip the last batch
                     continue
@@ -222,36 +222,35 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 loss = 0
                 for i in Lsce:
                     loss += i
-                _, preds = torch.max(outputs.data, 1)
 
                 x = {}
                 cnt = {}
                 labels_np = labels.numpy()
+                
+                fea_dt=feavec.detach()
                 for i in range(now_batch_size):
                     if class_names[labels_np[i]] in x: 
                         #s[class_names[i]]=1/(1+s_a) * (s[class_names[i]] + s_a*(1/))
-                        x[class_names[labels_np[i]]] +=  feavec[i]
-                        cnt[class_names[labels_np[i]]] += 1
+                        x[class_names[labels_np[i]]] = x[class_names[labels_np[i]]] +  fea_dt[i]
+                        cnt[class_names[labels_np[i]]] = cnt[class_names[labels_np[i]]] + 1
                     else:
-                        x[class_names[labels_np[i]]] = feavec[i]
+                        x[class_names[labels_np[i]]] = fea_dt[i]
                         cnt[class_names[labels_np[i]]] = 1 
-                print(cnt)
+                
                 for i in x:
                     if i in s:
                         s[i] = 1 / (1 + s_a) * (s[i] + s_a * (x[i] / cnt[i]))
                     else:
                         s[i] = 1 / (1 + s_a) * (s_a * (x[i] / cnt[i]))
-
+                
                 lccta=0
                 for i in x:
                     for j in x:
                         if (i[:4] == j[:4]):
                             lccta += torch.norm(s[j] - s[i], p=2)
                 
-                loss += (l_lunda*lccta)
-            else:
+                loss = loss+(l_lunda*lccta)
                 _, preds = torch.max(outputs.data, 1)
-                loss = criterion(outputs, labels)
 
 
 
