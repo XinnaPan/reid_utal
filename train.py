@@ -158,7 +158,8 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
     #best_model_wts = model.state_dict()
     #best_acc = 0.0
-    s_a=1
+    s_a = 1
+    l_lunda =10
     warm_up = 0.1  # We start from the 0.1*lrRate
     warm_iteration = round(dataset_sizes['train']/opt.batchsize)*opt.warm_epoch # first 5 epoch
     if opt.circle:
@@ -185,7 +186,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 # get the inputs
                 inputs, labels = data
                 #print(inputs.size())
-                #print(inputs)
+                print(labels)
                 now_batch_size,c,h,w = inputs.shape
                 if now_batch_size<opt.batchsize: # skip the last batch
                     continue
@@ -211,32 +212,51 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     outputs,feavec = model(inputs)
 
                 sm = nn.Softmax(dim=1)
-
-                #cnt = [0, 0, 0, 0, 0, 0]
-                #pos = [[],[],[],[],[],[]]
                 
+                Lsce=[0,0,0,0,0,0]
+                for i in range(now_batch_size):
+                    temp_o = torch.unsqueeze(outputs[i], 0)
+                    temp_l = labels[i].unsqueeze(0)
+                    Lsce[int(class_names[labels[i]][4])-1] += criterion(temp_o, temp_l)
+                
+                loss = 0
+                for i in Lsce:
+                    loss += i
+                _, preds = torch.max(outputs.data, 1)
+
                 x = {}
-                cnt={}
+                cnt = {}
                 labels_np = labels.numpy()
-                [rows]=labels_np.shape
-                for i in range(rows):
+                for i in range(now_batch_size):
                     if class_names[labels_np[i]] in x: 
                         #s[class_names[i]]=1/(1+s_a) * (s[class_names[i]] + s_a*(1/))
-                        x[class_names[labels_np[i]]] = x[class_names[labels_np[i]]] + feavec[i]
-                        cnt[class_names[labels_np[i]]] = cnt[class_names[labels_np[i]]] +1
+                        x[class_names[labels_np[i]]] +=  feavec[i]
+                        cnt[class_names[labels_np[i]]] += 1
                     else:
                         x[class_names[labels_np[i]]] = feavec[i]
-                        cnt[class_names[labels_np[i]]] = 1
-                     
-                print(x)
-                print("\n")
+                        cnt[class_names[labels_np[i]]] = 1 
                 print(cnt)
+                for i in x:
+                    if i in s:
+                        s[i] = 1 / (1 + s_a) * (s[i] + s_a * (x[i] / cnt[i]))
+                    else:
+                        s[i] = 1 / (1 + s_a) * (s_a * (x[i] / cnt[i]))
+
+                lccta=0
+                for i in x:
+                    for j in x:
+                        if (i[:4] == j[:4]):
+                            lccta += torch.norm(s[j] - s[i], p=2)
+                
+                loss += (l_lunda*lccta)
+            else:
+                _, preds = torch.max(outputs.data, 1)
+                loss = criterion(outputs, labels)
 
 
 
 
-
-                '''
+                '''               
                 if opt.circle: 
                     logits, ff = outputs
                     fnorm = torch.norm(ff, p=2, dim=1, keepdim=True)
@@ -260,11 +280,8 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     loss = criterion(part[0], labels)
                     for i in range(num_part-1):
                         loss += criterion(part[i+1], labels)
-                '''
                 
-
-
-
+                '''
 
                 # backward + optimize only if in training phase
                 if epoch<opt.warm_epoch and phase == 'train': 
