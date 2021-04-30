@@ -63,8 +63,8 @@ for str_id in str_ids:
         gpu_ids.append(gid)
 
 # set gpu ids
-if len(gpu_ids)>0:
-    #torch.cuda.set_device(gpu_ids[0])
+if len(gpu_ids)>0 and torch.cuda.is_available():
+    torch.cuda.set_device(gpu_ids[0])
     cudnn.benchmark = True
 ######################################################################
 # Load Data
@@ -483,7 +483,8 @@ with open('%s/opts.yaml'%dir_name,'w') as fp:
     yaml.dump(vars(opt), fp, default_flow_style=False)
 
 # model to gpu
-#model = model.cuda()
+if torch.cuda.is_available():
+    model = model.cuda()
 if fp16:
     #model = network_to_half(model)
     #optimizer_ft = FP16_Optimizer(optimizer_ft, static_loss_scale = 128.0)
