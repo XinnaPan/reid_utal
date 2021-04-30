@@ -118,7 +118,7 @@ if opt.train_all:
      train_all = '_all'
 
 image_datasets = {}
-image_datasets['train'] = datasets.ImageFolder(os.path.join(data_dir, 'train' + train_all),
+image_datasets['train'] = datasets.ImageFolder(os.path.join(data_dir, 'train'),
                                           data_transforms['train'])
 image_datasets['val'] = datasets.ImageFolder(os.path.join(data_dir, 'val'),
                                           data_transforms['val'])
@@ -164,9 +164,14 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     warm_iteration = round(dataset_sizes['train']/opt.batchsize)*opt.warm_epoch # first 5 epoch
     if opt.circle:
         criterion_circle = CircleLoss(m=0.25, gamma=32)
+
+    k=4
+    lccta=0
+    checkKeyInValue = lambda key, value: [1 for tp in value if key in tp]
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
+        
         
         # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
@@ -242,13 +247,15 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                         s[i] = 1 / (1 + s_a) * (s[i] + s_a * (x[i] / cnt[i]))
                     else:
                         s[i] = 1 / (1 + s_a) * (s_a * (x[i] / cnt[i]))
-                
-                lccta=0
+                #lccta=0
+                '''
                 for i in x:
                     for j in x:
                         if (i[:4] == j[:4]):
                             lccta += torch.norm(s[j] - s[i], p=2)
-                
+                '''
+            
+
                 loss = loss+(l_lunda*lccta)
                 _, preds = torch.max(outputs.data, 1)
 
@@ -316,6 +323,46 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 if epoch%10 == 9:
                     save_network(model, epoch)
                 draw_curve(epoch)
+            
+        
+            if 2*epoch >= num_epochs:
+                dis_all={}
+                for i in s:
+                    if i in dis_all:
+                        ldis=dis_all[i]
+                    else :
+                        ldis=[]
+                    for j in s:
+                        if i==j:
+                            continue
+                        #temp_t=()
+                        diff=s[j]-s[i]
+                        sqrDiff = diff ** 2
+                        sqrDiffSum = sqrDiff.sum(axis=0)
+                        dis=sqrDiffSum**0.5
+                        tup_temp=(j,dis)
+                        ldis.append(tup_temp)
+                    ldis.sort(key=lambda x:(x[1]))
+                    print(ldis)
+                    dis_all[i]=ldis[0:k+1]
+
+                rx = {}
+                for name1, value in dis_all.items():
+                    for name_dis_set in value:
+                        if checkKeyInValue(name1, dis_all[name_dis_set[0]]):
+                            temp = rx.get(name1, set())
+                            temp.add(name_dis_set)
+                            rx[name1] = temp
+
+                dis=0
+                for names,value in rx.items():
+                    for _,dis_spe in value:
+                        dis+=dis_spe
+                
+                lccta=dis
+                        
+           
+            
 
         time_elapsed = time.time() - since
         print('Training complete in {:.0f}m {:.0f}s'.format(
