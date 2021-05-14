@@ -73,6 +73,7 @@ train_save_path = download_path + '/pytorch/train_all'
 if not os.path.isdir(train_save_path):
     os.mkdir(train_save_path)
 
+'''
 for root, dirs, files in os.walk(train_path, topdown=True):
     for name in files:
         if not name[-3:]=='jpg':
@@ -83,6 +84,18 @@ for root, dirs, files in os.walk(train_path, topdown=True):
         if not os.path.isdir(dst_path):
             os.mkdir(dst_path)
         copyfile(src_path, dst_path + '/' + name)
+'''
+for root, dirs, files in os.walk(train_path, topdown=True):
+    for name in files:
+        if not name[-3:] == 'jpg':
+            continue
+        ID = name.split('_')
+        src_path = train_path + '/' + name
+        dst_train_path = train_save_path + '/' + ID[0] +  ID[1][1]
+        if not os.path.isdir(dst_train_path):
+            os.mkdir(dst_train_path)
+        copyfile(src_path, dst_train_path + '/' + name)
+
 
 
 #---------------------------------------

@@ -22,6 +22,8 @@ import yaml
 import math
 from shutil import copyfile
 from circle_loss import CircleLoss, convert_label_to_similarity
+import numpy as np
+from scipy.spatial import distance
 
 version =  torch.__version__
 #fp16
@@ -106,7 +108,7 @@ if opt.erasing_p>0:
 if opt.color_jitter:
     transform_train_list = [transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0)] + transform_train_list
 
-print(transform_train_list)
+#print(transform_train_list)
 data_transforms = {
     'train': transforms.Compose( transform_train_list ),
     'val': transforms.Compose(transform_val_list),
@@ -115,12 +117,12 @@ data_transforms = {
 
 train_all = ''
 if opt.train_all:
-     train_all = '_all'
+     train_all = '_all_'
 
 image_datasets = {}
-image_datasets['train'] = datasets.ImageFolder(os.path.join(data_dir, 'train'),
+image_datasets['train'] = datasets.ImageFolder(os.path.join(data_dir, 'train'+train_all),
                                           data_transforms['train'])
-image_datasets['val'] = datasets.ImageFolder(os.path.join(data_dir, 'val'),
+image_datasets['val'] = datasets.ImageFolder(os.path.join(data_dir, 'val_'),
                                           data_transforms['val'])
 
 dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=opt.batchsize,
@@ -128,6 +130,8 @@ dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=opt.
               for x in ['train', 'val']}
 dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 class_names = image_datasets['train'].classes
+class_names_val = image_datasets['val'].classes
+
 
 use_gpu = torch.cuda.is_available()
 
@@ -153,7 +157,21 @@ y_loss['val'] = []
 y_err = {}
 y_err['train'] = []
 y_err['val'] = []
-
+def compute_squared(X):
+    m,n = X.shape
+    print(m,n)
+    # compute Gram matrix
+    G = torch.mm(X.T, X)
+    # initialize squared EDM D
+    D = torch.zeros([n, n])
+    # iterate over upper triangle of D
+    for i in range(n):
+        for j in range(i+1, n):
+        #d = X[:,i] - X[:,j]
+            D[i,j] = G[i,i] - 2 * G[i,j] + G[j,j]
+            D[j,i] = D[i,j]
+    print("knn end")
+    return D
 def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
     since = time.time()
     #best_model_wts = model.state_dict()
@@ -190,13 +208,11 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
             for data in dataloaders[phase]:
                 # get the inputs
                 inputs, labels = data
-                #print(inputs.size())
-                #print(labels)
+
                 now_batch_size,c,h,w = inputs.shape
                 if now_batch_size<opt.batchsize: # skip the last batch
                     continue
-                #print(inputs.shape)
-                # wrap them in Variable
+                # wrap them in Variable 
                 if use_gpu:
                     inputs = Variable(inputs.cuda().detach())
                     labels = Variable(labels.cuda().detach())
@@ -212,42 +228,43 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 # forward
                 if phase == 'val':
                     with torch.no_grad():
-                        outputs,feavec = model(inputs)
+                        outputs,feavec = model(inputs)                       
                 else:
                     outputs,feavec = model(inputs)
 
                 sm = nn.Softmax(dim=1)
                 
-                Lsce=[0,0,0,0,0,0]
+                Lsce=torch.zeros([6]).cuda()
                 for i in range(now_batch_size):
                     temp_o = torch.unsqueeze(outputs[i], 0)
                     temp_l = labels[i].unsqueeze(0)
                     Lsce[int(class_names[labels[i]][4])-1] += criterion(temp_o, temp_l)
-                
-                loss = 0
-                for i in Lsce:
-                    loss += i
+                #Lsce_ts=torch.tensor(Lsce)
+                #Lsce_ts.requires_grad_(True)
+                loss_lsce = torch.sum(Lsce)/now_batch_size
 
                 x = {}
                 cnt = {}
-                labels_np = labels.numpy()
-                
-                fea_dt=feavec.detach()
+
+                #这下面是要算∑x，算∑x是为了算s
+                #算法是，设置了一个字典，key是class_name（应该是可以直接用label的，但是我反正当时就这么写了...），值是+=的形式，把特征向量加进去。
+                fea_dt=feavec.detach()      
                 for i in range(now_batch_size):
-                    if class_names[labels_np[i]] in x: 
-                        #s[class_names[i]]=1/(1+s_a) * (s[class_names[i]] + s_a*(1/))
-                        x[class_names[labels_np[i]]] = x[class_names[labels_np[i]]] +  fea_dt[i]
-                        cnt[class_names[labels_np[i]]] = cnt[class_names[labels_np[i]]] + 1
+                    #if...else...是因为这个class第一次出现的时候，还没有存储key
+                    if class_names[labels[i]] in x: 
+                        x[class_names[labels[i]]] = x[class_names[labels[i]]] +  fea_dt[i]
+                        cnt[class_names[labels[i]]] = cnt[class_names[labels[i]]] + 1
                     else:
-                        x[class_names[labels_np[i]]] = fea_dt[i]
-                        cnt[class_names[labels_np[i]]] = 1 
+                        x[class_names[labels[i]]] = fea_dt[i]
+                        cnt[class_names[labels[i]]] = 1 
                 
+                #这下面是要算s，完全按照论文的公式，if..else也是因为初始没有key。
                 for i in x:
                     if i in s:
                         s[i] = 1 / (1 + s_a) * (s[i] + s_a * (x[i] / cnt[i]))
                     else:
                         s[i] = 1 / (1 + s_a) * (s_a * (x[i] / cnt[i]))
-                #lccta=0
+                
                 '''
                 for i in x:
                     for j in x:
@@ -256,7 +273,7 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 '''
             
 
-                loss = loss+(l_lunda*lccta)
+                loss=loss_lsce+l_lunda*lccta
                 _, preds = torch.max(outputs.data, 1)
 
 
@@ -297,9 +314,9 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                 if phase == 'train':
                     if fp16: # we use optimier to backward loss
                         with amp.scale_loss(loss, optimizer) as scaled_loss:
-                            scaled_loss.backward()
+                            scaled_loss.backward(retain_graph=True)
                     else:
-                        loss.backward()
+                        loss.backward(retain_graph=True)     #这里我进行了修改，好像因为半路改loss，要保存图
                     optimizer.step()
 
                 # statistics
@@ -324,50 +341,47 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs=25):
                     save_network(model, epoch)
                 draw_curve(epoch)
             
-        
+            
+            #这下面是lccta的计算，半周期前都是0，这里开始赋值。
             if 2*epoch >= num_epochs:
+                #这下面是算knn的，最后dis_all存储的是每个类的最近7个类的距离；dis_index_all存的是k个最近类的,在mat中的行号
                 dis_all={}
                 for i in s:
-                    if i in dis_all:
-                        ldis=dis_all[i]
-                    else :
-                        ldis=[]
-                    for j in s:
-                        if i==j:
-                            continue
-                        #temp_t=()
-                        diff=s[j]-s[i]
-                        sqrDiff = diff ** 2
-                        sqrDiffSum = sqrDiff.sum(axis=0)
-                        dis=sqrDiffSum**0.5
-                        tup_temp=(j,dis)
-                        ldis.append(tup_temp)
-                    ldis.sort(key=lambda x:(x[1]))
-                    print(ldis)
-                    dis_all[i]=ldis[0:k+1]
+                    s[i]=s[i].reshape(1,512)    #
+                #name_4_each_line=list(s.keys())   
+                tensor_tuple = tuple(s.values())
+                mat = torch.cat(tensor_tuple,0)#s(dict)转矩阵，最终要求距离的矩阵是mat
+                mat=mat.cpu().numpy()
+                dist_res=distance.cdist(mat,mat, 'euclidean')#求距离矩阵
+                dis_all = np.sort(dist_res,axis=1)#排序，取最后k列
+                dis_index_all=np.argsort(-dist_res)#获取排序后，每个item对应的index
+                dis_all=dis_all[:,:k+1] 
+                dis_index_all=dis_index_all [:,:k+1]
 
-                rx = {}
-                for name1, value in dis_all.items():
-                    for name_dis_set in value:
-                        if checkKeyInValue(name1, dis_all[name_dis_set[0]]):
-                            temp = rx.get(name1, set())
-                            temp.add(name_dis_set)
-                            rx[name1] = temp
-
-                dis=0
-                for names,value in rx.items():
-                    for _,dis_spe in value:
-                        dis+=dis_spe
                 
-                lccta=dis
-                        
-           
+                #这下面是算R的，就是论文里面那个R公式，你中有我我中有你那个
+                rx = []
+                dis_all_shape_x,dis_all_shape_y=dis_all.shape
+                for i in range(dis_all_shape_x):
+                    for j in range(dis_all_shape_y):
+                        #先获得某个tracklet的k近邻，再遍历他的k近邻是否有它
+                        index_in_before=dis_index_all[i][j] 
+                        for h in range(dis_all_shape_y):
+                            if dis_index_all[index_in_before][h]==i:
+                                #互相有的话，就把距离加起来
+                                if len(rx)<i+1:
+                                    rx.append(dis_all[i][j])
+                                else :
+                                    rx[i]+=dis_all[i][j]
+                                break
+                rx_ts=torch.tensor(rx)
+                rx_ts.requires_grad_(True)
+                lccta=torch.sum(rx_ts/dis_all_shape_x)                       
+                
             
-
         time_elapsed = time.time() - since
         print('Training complete in {:.0f}m {:.0f}s'.format(
             time_elapsed // 60, time_elapsed % 60))
-        print()
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
@@ -428,15 +442,12 @@ if opt.PCB:
 
 opt.nclasses = len(class_names)
 
-print(model)
+#print(model)
 
 if not opt.PCB:
     ignored_params = list(map(id, model.classifier.parameters() ))
     base_params = filter(lambda p: id(p) not in ignored_params, model.parameters())
-    optimizer_ft = optim.SGD([
-             {'params': base_params, 'lr': 0.1*opt.lr},
-             {'params': model.classifier.parameters(), 'lr': opt.lr}
-         ], weight_decay=5e-4, momentum=0.9, nesterov=True)
+    optimizer_ft = optim.Adam(model.parameters(),lr=3.5e-4, weight_decay=5e-4)
 else:
     ignored_params = list(map(id, model.model.fc.parameters() ))
     ignored_params += (list(map(id, model.classifier0.parameters() )) 
